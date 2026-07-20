@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Boots Postgres deps, the FastAPI backend, and the Bun/React frontend together.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+DB_NAME="${DB_NAME:-abridge}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+
+echo "==> Ensuring database '$DB_NAME' exists"
+psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 \
+  || psql -d postgres -c "CREATE DATABASE $DB_NAME"
+
+echo "==> Setting up Python backend"
+cd backend
+python3 -m venv .venv 2>/dev/null || true
+source .venv/bin/activate
+pip install -q -r requirements.txt
+DATABASE_URL="dbname=$DB_NAME" uvicorn main:app --host 0.0.0.0 --port "$BACKEND_PORT" &
+BACKEND_PID=$!
+cd ..
+
+echo "==> Setting up frontend"
+cd frontend
+bun install --silent
+BACKEND_URL="http://localhost:$BACKEND_PORT" PORT="$FRONTEND_PORT" bun run server.ts &
+FRONTEND_PID=$!
+cd ..
+
+trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT
+echo ""
+echo "==> Abridge running at  http://localhost:$FRONTEND_PORT"
+wait
