@@ -28,6 +28,8 @@ deps, and starts both. Ports are configurable: `BACKEND_PORT` (default 8000),
 - **See available note types** — seeded with *Visit Summary* and *Referral Letter*.
 - **Pick a transcript** (3 realistic ones are seeded) and **a note type**, then
   **generate** a stubbed structured draft.
+- **Upload a new transcript through the UI** (title, patient, provider, content),
+  as if it arrived from the recording pipeline — stored as data.
 - **Add a new note type through the UI**, stored as data — no code change.
 
 ## Where I spent the design budget

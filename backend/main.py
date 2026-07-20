@@ -85,10 +85,12 @@ CREATE TABLE IF NOT EXISTS note_type_versions (
 );
 
 CREATE TABLE IF NOT EXISTS transcripts (
-    id          SERIAL PRIMARY KEY,
-    title       TEXT NOT NULL,
-    body        TEXT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    id             SERIAL PRIMARY KEY,
+    title          TEXT NOT NULL,
+    patient_name   TEXT,
+    provider_name  TEXT,
+    content        TEXT NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS notes (
@@ -141,7 +143,9 @@ SEED_NOTE_TYPES = [
 SEED_TRANSCRIPTS = [
     {
         "title": "Ms. Alvarez — persistent cough",
-        "body": (
+        "patient_name": "Maria Alvarez",
+        "provider_name": "Dr. Patel",
+        "content": (
             "DR: Good morning, what brings you in today?\n"
             "PT: I've had this cough for about three weeks now, it just won't quit.\n"
             "DR: Any fever, or coughing anything up?\n"
@@ -156,7 +160,9 @@ SEED_TRANSCRIPTS = [
     },
     {
         "title": "Mr. Okafor — knee pain, ? orthopedics",
-        "body": (
+        "patient_name": "Daniel Okafor",
+        "provider_name": "Dr. Nguyen",
+        "content": (
             "DR: How's the knee doing since last time?\n"
             "PT: Worse, honestly. Climbing stairs is rough and it swells by evening.\n"
             "DR: Any injury you remember?\n"
@@ -171,7 +177,9 @@ SEED_TRANSCRIPTS = [
     },
     {
         "title": "Mrs. Chen — diabetes follow-up",
-        "body": (
+        "patient_name": "Wei Chen",
+        "provider_name": "Dr. Patel",
+        "content": (
             "DR: Your A1C came back at 8.1, up a little from last visit.\n"
             "PT: I've been slipping on the diet, I know.\n"
             "DR: Any symptoms — thirst, blurry vision, numbness in the feet?\n"
@@ -204,8 +212,8 @@ def seed():
         if cur.fetchone()["n"] == 0:
             for t in SEED_TRANSCRIPTS:
                 cur.execute(
-                    "INSERT INTO transcripts(title, body) VALUES (%s, %s)",
-                    (t["title"], t["body"]),
+                    "INSERT INTO transcripts(title, patient_name, provider_name, content) VALUES (%s, %s, %s, %s)",
+                    (t["title"], t["patient_name"], t["provider_name"], t["content"]),
                 )
 
 
@@ -221,7 +229,7 @@ def startup():
 # --------------------------------------------------------------------------- #
 def _fake_section_text(section, transcript):
     """Produce plausible-looking stub text for one section from a transcript."""
-    snippet = " ".join(transcript["body"].split()[:40])
+    snippet = " ".join(transcript["content"].split()[:40])
     return (
         f"[{section['title']}] Draft generated from transcript "
         f"\"{transcript['title']}\".\n\n{snippet} …"
@@ -245,7 +253,7 @@ def generate_note(note_id):
     # Load the note + its pinned version + transcript.
     with db() as cur:
         cur.execute(
-            """SELECT n.id, v.sections, t.title, t.body
+            """SELECT n.id, v.sections, t.title, t.content
                FROM notes n
                JOIN note_type_versions v ON v.id = n.note_type_version_id
                JOIN transcripts t ON t.id = n.transcript_id
@@ -256,7 +264,7 @@ def generate_note(note_id):
     if not row:
         return
     sections = row["sections"]
-    transcript = {"title": row["title"], "body": row["body"]}
+    transcript = {"title": row["title"], "content": row["content"]}
 
     # 1) SLOW: seconds (a real generator can take minutes).
     time.sleep(random.uniform(1.0, 3.5))
@@ -328,7 +336,9 @@ class NewVersionIn(BaseModel):
 
 class TranscriptIn(BaseModel):
     title: str
-    body: str
+    content: str
+    patient_name: str | None = None
+    provider_name: str | None = None
 
 
 class GenerateIn(BaseModel):
@@ -426,7 +436,9 @@ def publish_version(version_id: int):
 @app.get("/api/transcripts")
 def list_transcripts():
     with db() as cur:
-        cur.execute("SELECT id, title, body, created_at FROM transcripts ORDER BY id DESC")
+        cur.execute(
+            "SELECT id, title, patient_name, provider_name, content, created_at FROM transcripts ORDER BY id DESC"
+        )
         return [
             {**r, "created_at": r["created_at"].isoformat()} for r in cur.fetchall()
         ]
@@ -436,8 +448,8 @@ def list_transcripts():
 def create_transcript(payload: TranscriptIn):
     with db() as cur:
         cur.execute(
-            "INSERT INTO transcripts(title, body) VALUES (%s, %s) RETURNING id",
-            (payload.title, payload.body),
+            "INSERT INTO transcripts(title, patient_name, provider_name, content) VALUES (%s, %s, %s, %s) RETURNING id",
+            (payload.title, payload.patient_name, payload.provider_name, payload.content),
         )
         return {"id": cur.fetchone()["id"]}
 

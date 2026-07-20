@@ -29,7 +29,10 @@ type Version = {
   sections: Section[]; created_by: string; created_at: string;
 };
 type NoteType = { id: number; name: string; versions: Version[] };
-type Transcript = { id: number; title: string; body: string };
+type Transcript = {
+  id: number; title: string; content: string;
+  patient_name: string | null; provider_name: string | null;
+};
 type Note = {
   id: number; status: string; content: Record<string, string> | null;
   error: string | null; transcript_title: string; note_type_name: string;
@@ -140,12 +143,16 @@ function TranscriptSelector({ transcripts, selected, onSelect, onAdded }: {
 }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const [patient, setPatient] = useState("");
+  const [provider, setProvider] = useState("");
+  const [content, setContent] = useState("");
 
   const submit = async () => {
-    if (!title.trim() || !body.trim()) return;
-    const { id } = await api.post("/api/transcripts", { title, body });
-    setTitle(""); setBody(""); setAdding(false);
+    if (!title.trim() || !content.trim()) return;
+    const { id } = await api.post("/api/transcripts", {
+      title, content, patient_name: patient || null, provider_name: provider || null,
+    });
+    setTitle(""); setPatient(""); setProvider(""); setContent(""); setAdding(false);
     await onAdded(); onSelect(id);
   };
 
@@ -165,9 +172,15 @@ function TranscriptSelector({ transcripts, selected, onSelect, onAdded }: {
         <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
           <input style={input} placeholder="Title (e.g. Ms. Smith — chest pain)"
             value={title} onChange={(e) => setTitle(e.target.value)} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={input} placeholder="Patient name (optional)"
+              value={patient} onChange={(e) => setPatient(e.target.value)} />
+            <input style={input} placeholder="Provider name (optional)"
+              value={provider} onChange={(e) => setProvider(e.target.value)} />
+          </div>
           <textarea style={{ ...input, minHeight: 120, fontFamily: "ui-monospace, monospace" }}
-            placeholder="Paste transcript text…" value={body} onChange={(e) => setBody(e.target.value)} />
-          <button style={btn()} onClick={submit}>Add transcript</button>
+            placeholder="Paste transcript text…" value={content} onChange={(e) => setContent(e.target.value)} />
+          <button style={btn()} onClick={submit}>Upload transcript</button>
         </div>
       )}
     </div>
@@ -176,12 +189,23 @@ function TranscriptSelector({ transcripts, selected, onSelect, onAdded }: {
 
 function TranscriptPreview({ transcript }: { transcript: Transcript | null }) {
   if (!transcript) return null;
+  const meta = [transcript.patient_name, transcript.provider_name].filter(Boolean).join(" · ");
   return (
-    <pre style={{
-      marginTop: 12, background: "var(--panel-2)", border: "1px solid var(--line)",
-      borderRadius: 8, padding: 12, maxHeight: 200, overflow: "auto",
-      whiteSpace: "pre-wrap", color: "var(--muted)", fontSize: 13,
-    }}>{transcript.body}</pre>
+    <div style={{ marginTop: 12 }}>
+      {meta && (
+        <div style={{ color: "var(--text)", fontSize: 13, marginBottom: 6 }}>
+          <span style={{ color: "var(--muted)" }}>Patient / provider: </span>{meta}
+        </div>
+      )}
+      <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 6 }}>
+        This is what will be sent to the generator.
+      </div>
+      <pre style={{
+        background: "var(--panel-2)", border: "1px solid var(--line)",
+        borderRadius: 8, padding: 12, maxHeight: 200, overflow: "auto",
+        whiteSpace: "pre-wrap", color: "var(--muted)", fontSize: 13, margin: 0,
+      }}>{transcript.content}</pre>
+    </div>
   );
 }
 
