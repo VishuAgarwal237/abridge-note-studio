@@ -95,13 +95,22 @@ CREATE TABLE IF NOT EXISTS notes (
     id                    SERIAL PRIMARY KEY,
     transcript_id         INTEGER NOT NULL REFERENCES transcripts(id),
     note_type_version_id  INTEGER NOT NULL REFERENCES note_type_versions(id),
+    -- status: queued -> running -> succeeded -> approved
+    --                            \-> timed_out | invalid_output | failed
     status                TEXT NOT NULL DEFAULT 'queued',
     -- content: { "hpi": "…", "assessment": "…" }  (keyed by section key)
     content               JSONB,
     error                 TEXT,
+    -- clinician sign-off: the record of who trusted this note, and when.
+    approved_by           TEXT,
+    approved_at           TIMESTAMPTZ,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migrations for DBs created before the approve step existed.
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS approved_by TEXT;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
 """
 
 
@@ -327,6 +336,10 @@ class GenerateIn(BaseModel):
     note_type_version_id: int
 
 
+class ApproveIn(BaseModel):
+    approved_by: str = "web-user"
+
+
 # --------------------------------------------------------------------------- #
 # Note types  (list / create / new version / publish)
 # --------------------------------------------------------------------------- #
@@ -448,6 +461,8 @@ def _note_row(cur, note_id):
         return None
     r["created_at"] = r["created_at"].isoformat()
     r["updated_at"] = r["updated_at"].isoformat()
+    if r.get("approved_at"):
+        r["approved_at"] = r["approved_at"].isoformat()
     return r
 
 
@@ -489,7 +504,7 @@ def get_note(note_id: int):
 def retry_note(note_id: int):
     with db() as cur:
         cur.execute(
-            "UPDATE notes SET status='queued', error=NULL, content=NULL, updated_at=now() WHERE id=%s RETURNING id",
+            "UPDATE notes SET status='queued', error=NULL, content=NULL, approved_by=NULL, approved_at=NULL, updated_at=now() WHERE id=%s RETURNING id",
             (note_id,),
         )
         if not cur.fetchone():
@@ -497,6 +512,28 @@ def retry_note(note_id: int):
         row = _note_row(cur, note_id)
     kick_generation(note_id)
     return row
+
+
+@app.post("/api/notes/{note_id}/approve")
+def approve_note(note_id: int, payload: ApproveIn):
+    """
+    Clinician sign-off. A note can only be approved once it has SUCCEEDED
+    (a timed-out / invalid / still-running note is not trustworthy to sign).
+    We record who approved it and when — the audit trail for the note itself.
+    """
+    with db() as cur:
+        cur.execute("SELECT status FROM notes WHERE id=%s", (note_id,))
+        n = cur.fetchone()
+        if not n:
+            raise HTTPException(404, "note not found")
+        if n["status"] not in ("succeeded", "approved"):
+            raise HTTPException(400, "Only a successfully generated note can be approved.")
+        cur.execute(
+            """UPDATE notes SET status='approved', approved_by=%s, approved_at=now(),
+                                updated_at=now() WHERE id=%s""",
+            (payload.approved_by, note_id),
+        )
+        return _note_row(cur, note_id)
 
 
 @app.get("/api/notes")

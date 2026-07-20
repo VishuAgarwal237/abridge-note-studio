@@ -34,6 +34,7 @@ type Note = {
   id: number; status: string; content: Record<string, string> | null;
   error: string | null; transcript_title: string; note_type_name: string;
   version: number; sections: Section[]; updated_at: string;
+  approved_by: string | null; approved_at: string | null;
 };
 
 /* --------------------------- shared UI bits --------------------------- */
@@ -56,7 +57,8 @@ const label: React.CSSProperties = { color: "var(--muted)", fontSize: 12, textTr
 const STATUS_META: Record<string, { color: string; label: string }> = {
   queued: { color: "var(--muted)", label: "Queued" },
   running: { color: "var(--blue)", label: "Generating…" },
-  succeeded: { color: "var(--green)", label: "Ready" },
+  succeeded: { color: "var(--green)", label: "Ready · needs review" },
+  approved: { color: "var(--green)", label: "Approved" },
   timed_out: { color: "var(--amber)", label: "Timed out" },
   invalid_output: { color: "var(--red)", label: "Invalid output" },
   failed: { color: "var(--red)", label: "Failed" },
@@ -216,6 +218,11 @@ function NoteGenerationPanel({ noteTypes, selectedVersion, onSelectVersion, tran
     setNote(n);
   };
 
+  const approve = async () => {
+    const n = await api.post(`/api/notes/${note!.id}/approve`, { approved_by: "web-user" });
+    setNote(n);
+  };
+
   return (
     <section style={card}>
       <h2 style={{ marginTop: 0, fontSize: 15 }}>2 · Note type &amp; generation</h2>
@@ -224,7 +231,7 @@ function NoteGenerationPanel({ noteTypes, selectedVersion, onSelectVersion, tran
       <GenerateNoteButton
         disabled={!transcriptId || !selectedVersion}
         onClick={generate} error={error} />
-      <GeneratedNote note={note} onRetry={retry} />
+      <GeneratedNote note={note} onRetry={retry} onApprove={approve} />
     </section>
   );
 }
@@ -286,10 +293,14 @@ function GenerateNoteButton({ disabled, onClick, error }: {
   );
 }
 
-function GeneratedNote({ note, onRetry }: { note: Note | null; onRetry: () => void }) {
+function GeneratedNote({ note, onRetry, onApprove }: {
+  note: Note | null; onRetry: () => void; onApprove: () => void;
+}) {
   if (!note) return null;
   const busy = ["queued", "running"].includes(note.status);
   const failed = ["timed_out", "invalid_output", "failed"].includes(note.status);
+  const canApprove = note.status === "succeeded";
+  const approved = note.status === "approved";
 
   return (
     <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
@@ -299,7 +310,20 @@ function GeneratedNote({ note, onRetry }: { note: Note | null; onRetry: () => vo
           {note.note_type_name} v{note.version} · {note.transcript_title}
         </span>
         {failed && <button style={{ ...btn(false), marginLeft: "auto" }} onClick={onRetry}>Retry</button>}
+        {canApprove && (
+          <button style={{ ...btn(), marginLeft: "auto", background: "var(--green)" }} onClick={onApprove}>
+            Review &amp; approve
+          </button>
+        )}
       </div>
+
+      {approved && (
+        <div style={{ background: "rgba(55,194,107,0.1)", border: "1px solid var(--green)",
+          borderRadius: 8, padding: "8px 12px", color: "var(--green)", marginBottom: 10, fontSize: 13 }}>
+          ✓ Approved by <strong>{note.approved_by}</strong>
+          {note.approved_at ? ` · ${new Date(note.approved_at).toLocaleString()}` : ""}
+        </div>
+      )}
 
       {busy && <p style={{ color: "var(--muted)" }}>Working… a real generator can take seconds to minutes. You can keep working meanwhile.</p>}
 

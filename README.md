@@ -60,6 +60,10 @@ before a clinician sees it — a dropped required section surfaces as
 - Every generated note **pins the exact `note_type_version_id`** it used, so a
   later edit — even a bad one — can never rewrite or break an existing note.
   Old notes stay reproducible under the template they were made with.
+- **Note-level sign-off** closes the trust loop: a successfully generated note
+  is a *draft* until a clinician clicks **Review & approve**, which moves it
+  `succeeded → approved` and records **who approved it and when**. Only a
+  succeeded note can be approved (you can't sign a timed-out/invalid one).
 
 ## Data model (4 tables)
 
@@ -68,7 +72,7 @@ before a clinician sees it — a dropped required section surfaces as
 | `note_types`         | named templates |
 | `note_type_versions` | immutable versions: `sections` (JSONB), `status` (draft/published), author — the versioning + trust backbone |
 | `transcripts`        | incoming from the "recording pipeline" |
-| `notes`              | generated notes with the status state machine; pins the note-type version used |
+| `notes`              | generated notes with the status state machine; pins the note-type version used; `approved_by` / `approved_at` record clinician sign-off |
 
 ## Stack
 
